@@ -1,6 +1,6 @@
 # API 文档
 
-- [/api/auth](auth.md)
-- [/api/admin](admin.md)
-- [/api/dict](dict.md)
-- [/api/game](game.md)
+- [验证](auth.md)
+- [管理](admin.md)
+- [词典](dict.md)
+- [对局](game.md)
