@@ -6,6 +6,7 @@ let currentWordIndex = 0;
 let userAnswers = [];
 let userScores = {};
 let AUTH_DATA = {};
+let socket = null;
 
 // Extract game ID from URL
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,7 +42,8 @@ async function loadGameAndStart() {
                 initializeScores();
                 displayCurrentWord();
             updateParticipantsList();
-            autoRefresh();
+            // initialize realtime socket connection for this game
+            initSocket();
         } else {
             showError(data.message || '加载对局失败');
         }
@@ -137,6 +139,22 @@ async function submitAnswer(event) {
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
 
+    // If socket connected, send answer via socket for low-latency update
+    if (socket && socket.connected) {
+        socket.emit('game.answer', {
+            uid: AUTH_DATA.uid,
+            pwhash: AUTH_DATA.pwhash,
+            game_id: gameId,
+            word_id: expectedWordId,
+            answer: answer
+        });
+
+        // Wait for server to emit 'game.answer_result' (handled in initSocket)
+        // Re-enable will be done when answer_result is received for this user
+        return;
+    }
+
+    // Fallback to HTTP API if socket not available
     try {
         const response = await fetch(`/api/game/${gameId}/answer`, {
             method: 'POST',
@@ -186,6 +204,51 @@ async function submitAnswer(event) {
         alert('提交答案出错');
         submitBtn.disabled = false;
     }
+}
+
+
+function initSocket() {
+    if (socket) return;
+    if (typeof io === 'undefined') return; // socket.io client not loaded
+
+    socket = io();
+
+    socket.on('connect', () => {
+        socket.emit('game.subscribe', { uid: AUTH_DATA.uid, pwhash: AUTH_DATA.pwhash, game_id: gameId });
+    });
+
+    socket.on('game.update', (state) => {
+        if (!state || state.id !== gameId) return;
+        currentGameData = state;
+        currentWordIndex = state.current_index || 0;
+        initializeScores();
+        updateParticipantsList();
+        displayCurrentWord();
+    });
+
+    socket.on('game.answer_result', (d) => {
+        // Only handle responses relevant to this client
+        // The server emits answer_result only to the emitter
+        const submitBtn = document.getElementById('submitBtn');
+        if (submitBtn) submitBtn.disabled = false;
+
+        if (d && typeof d.correct !== 'undefined') {
+            // refresh latest state via server-sent update will arrive separately
+            if (d.correct) {
+                userScores[AUTH_DATA.uid].correct++;
+                userScores[AUTH_DATA.uid].perf++;
+            } else {
+                userScores[AUTH_DATA.uid].wrong++;
+                userScores[AUTH_DATA.uid].perf--;
+            }
+            updateMyScore();
+        }
+    });
+
+    socket.on('game.error', (d) => {
+        if (!d) return;
+        alert(d.message || 'Game error');
+    });
 }
 
 function updateMyScore() {
