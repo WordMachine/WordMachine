@@ -1,7 +1,9 @@
 from . import socketio
-from flask_socketio import join_room, leave_room, emit, check_answer
+from flask_socketio import join_room, leave_room, emit
 from .utils import get_db_connection, check_auth
 import json
+import random
+import math
 
 
 def _room_for(game_id):
@@ -336,17 +338,76 @@ def handle_answer(data):
         emit('game.error', {'message': 'Word not found'})
         return
 
-    is_correct = is_correct = check_answer(answer.strip(), word['english'].strip())
+    is_correct = answer.strip().lower() == word['english'].strip().lower()
+
+    globalcombo = result[-1]['globalcombo'] if result else 0
+    if is_correct:
+        globalcombo += 1
+    else:
+        globalcombo = 0
+    
+    usercombo = 0
+    flag = 0
+    if is_correct:
+        if result:
+            for r in reversed(result):
+                if r['uid'] == uid:
+                    usercombo = r['usercombo']
+                    flag = 1
+                    break
+        usercombo += 1
+    else:
+        usercombo = 0
+    
+    # print("usercombo:", usercombo, "globalcombo:", globalcombo)
+    if is_correct:
+        perf_delta=random.randint(10+math.ceil(usercombo**0.7),15+5*math.ceil(usercombo**0.7))
+    else:
+        perf_delta=-random.randint(math.ceil((globalcombo+1)**0.7),5*math.ceil((globalcombo+1)**0.7))
+    
+    cursor.execute("SELECT rating, gamehistory FROM user WHERE id = %s", (uid,))
+    userrating = cursor.fetchone()
+
+    gmhistory = userrating['gamehistory']
+    if gmhistory != None:
+        gamehistory = json.loads(gmhistory)
+        if gamehistory[-1] != game_id:
+            gamehistory.append(game_id)
+    if gmhistory == None:
+        gamehistory = [game_id]
+    
+    # print("gamehistory:", gamehistory)
+
+    cursor.execute("UPDATE user SET gamehistory = %s WHERE id = %s", (json.dumps(gamehistory), uid,))
+    conn.commit()
+
+    if not flag:
+        if len(gamehistory) <= 5:
+            perf = max(userrating['rating'],1500) + perf_delta
+        else:
+            perf = userrating['rating'] + perf_delta
+    else:
+        for r in reversed(result):
+            if r['uid'] == uid:
+                perf = r['perf'] + perf_delta
+                break
+    
+    # print("perf_delta:", perf_delta, "perf:", perf)
 
     result.append({
         'uid': uid,
         'word_id': word_id,
         'answer': answer,
-        'result': is_correct
+        'result': is_correct,
+        'usercombo': usercombo,
+        'globalcombo': globalcombo,
+        'perf_delta': perf_delta,
+        'perf': perf
     })
 
     cursor.execute("UPDATE game SET result = %s WHERE id = %s", (json.dumps(result), game_id))
     conn.commit()
+    
 
     # prepare next turn info
     next_turn = None
