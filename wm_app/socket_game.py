@@ -359,11 +359,6 @@ def handle_answer(data):
     else:
         usercombo = 0
     
-    # print("usercombo:", usercombo, "globalcombo:", globalcombo)
-    if is_correct:
-        perf_delta=random.randint(10+math.ceil(usercombo**0.7),15+5*math.ceil(usercombo**0.7))
-    else:
-        perf_delta=-random.randint(math.ceil((globalcombo+1)**0.7),5*math.ceil((globalcombo+1)**0.7))
     
     cursor.execute("SELECT rating, gamehistory FROM user WHERE id = %s", (uid,))
     userrating = cursor.fetchone()
@@ -381,6 +376,13 @@ def handle_answer(data):
     cursor.execute("UPDATE user SET gamehistory = %s WHERE id = %s", (json.dumps(gamehistory), uid,))
     conn.commit()
 
+    
+    # print("usercombo:", usercombo, "globalcombo:", globalcombo)
+    if is_correct:
+        perf_delta=(1500/min(max(1300,userrating['rating']),1700))*random.randint(10+math.ceil(usercombo**0.7),15+5*math.ceil(usercombo**0.7))
+    else:
+        perf_delta=-(1/(1500/min(max(1300,userrating['rating']),1700)))*random.randint(math.ceil((globalcombo+1)**0.7),5*math.ceil((globalcombo+1)**0.7))
+    
     if not flag:
         if len(gamehistory) <= 5:
             perf = max(userrating['rating'],1500) + perf_delta
@@ -392,6 +394,8 @@ def handle_answer(data):
                 perf = r['perf'] + perf_delta
                 break
     
+    
+
     # print("perf_delta:", perf_delta, "perf:", perf)
 
     result.append({
